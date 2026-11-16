@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:demo": "tsc --noEmit && vite build --mode demo --base=/rushboard/ --outDir dist-demo && node scripts/demo-pages.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {

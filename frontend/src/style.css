@@ -52,6 +52,8 @@ nav a[aria-current='page'] { background: var(--ink); color: #fff9ef; }
 .hero-counts strong { font: 800 3.3rem/.98 var(--display); }
 .hero-counts span { margin-top: 7px; color: #f1ceba; text-transform: uppercase; letter-spacing: .12em; font-size: .64rem; font-weight: 750; white-space: nowrap; }
 .sync-warning { display: flex; align-items: center; gap: 9px; background: #ffedcf; color: #6d3b0c; padding: 10px 14px; border-radius: 7px; margin-top: 16px; }
+.demo-guide { margin-top: 17px; padding: 10px 14px; background: var(--paper); border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: .83rem; }
+.demo-guide strong { color: var(--orange); margin-right: 6px; }
 
 .cashier-grid, .board-grid { display: grid; align-items: start; gap: 22px; margin-top: 27px; }
 .cashier-grid { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); }

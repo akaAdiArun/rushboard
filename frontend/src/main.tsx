@@ -7,7 +7,8 @@ import {
 import '@fontsource-variable/inter';
 import '@fontsource/barlow-condensed/latin-700.css';
 import '@fontsource/barlow-condensed/latin-800.css';
-import { request, RequestError, type Cart, type MenuItem, type Receipt, type Station, type Ticket, type TicketItem, type View } from './api';
+import { api, publicDemo } from './api';
+import { RequestError, type Cart, type MenuItem, type Receipt, type Station, type Ticket, type TicketItem, type View } from './contracts';
 import './style.css';
 
 const screens = {
@@ -20,6 +21,7 @@ const screens = {
 const menuNotes = { burger: 'Griddled patty, pickles & house sauce', fries: 'Crisp golden fries, tossed in sea salt' };
 const initialCart: Cart = { burger: 1, fries: 1 };
 const pendingKey = 'rushboard.pending-order';
+const base = import.meta.env.BASE_URL;
 const formatTicket = (id: number) => `#${String(id).padStart(3, '0')}`;
 const formatTime = (created_at: string) => new Date(created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
@@ -34,9 +36,7 @@ function useBoard(view: View) {
 
     async function poll() {
       try {
-        const data = await request<Ticket[]>(`/boards/${view}`, {
-          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
-        });
+        const data = await api.board(view, AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]));
         if (controller.signal.aborted) return;
         setTickets(data);
         setConnection('live');
@@ -58,7 +58,7 @@ function useBoard(view: View) {
 }
 
 function App() {
-  const path = location.pathname.slice(1);
+  const path = location.pathname.slice(base.length).replace(/\/$/, '');
   const view: View = Object.hasOwn(screens, path) ? path as View : 'cashier';
   const { label, title, description, icon: ScreenIcon } = screens[view];
   const { tickets, connection, sync } = useBoard(view);
@@ -70,14 +70,14 @@ function App() {
       <a className="skip" href="#main">Skip to content</a>
       <header className="topbar">
         <div className="topbar-inner">
-          <a href="/" className="brand" aria-label="RushBoard cashier home">
+          <a href={base} className="brand" aria-label="RushBoard cashier home">
             <span className="brand-mark"><Flame size={22} fill="currentColor" /></span>
             <span>RushBoard</span>
           </a>
           <nav aria-label="Kitchen screens">
             {(Object.keys(screens) as View[]).map((screen) => {
               const { label, icon: Icon } = screens[screen];
-              return <a key={screen} href={`/${screen}`} aria-current={screen === view ? 'page' : undefined}>
+              return <a key={screen} href={`${base}${screen}${publicDemo ? '/' : ''}`} aria-current={screen === view ? 'page' : undefined}>
                 <Icon size={17} /> {label}
               </a>;
             })}
@@ -90,7 +90,7 @@ function App() {
       <main id="main" className="workspace" tabIndex={-1}>
         <section className="hero" aria-labelledby="title">
           <div className="hero-intro">
-            <div className="eyebrow"><ScreenIcon size={15} /> Service Lane Diner <span>/</span> {label}</div>
+            <div className="eyebrow"><ScreenIcon size={15} /> Service Lane Diner <span>/</span> {publicDemo ? 'Browser demo' : label}</div>
             <h1 id="title">{title}</h1>
             <p>{description}</p>
           </div>
@@ -100,6 +100,7 @@ function App() {
           </div>
         </section>
         {connection === 'offline' && <p className="sync-warning" role="status"><CircleAlert size={17} /> Kitchen connection interrupted. The board will retry automatically.</p>}
+        {publicDemo && view === 'cashier' && <p className="demo-guide"><strong>Try it yourself</strong> Send the sample order, then finish it on Grill and Fryer. Open Handoff in another tab to watch it update. Tickets stay in this browser.</p>}
         {view === 'cashier' && <Cashier sync={sync} />}
         {isStation && <StationBoard station={view} tickets={tickets} sync={sync} loading={connection === 'connecting'} />}
         {view === 'handoff' && <Handoff tickets={tickets} sync={sync} loading={connection === 'connecting'} />}
@@ -132,7 +133,7 @@ function Cashier({ sync }: { sync: () => void }) {
 
   useEffect(() => {
     let active = true;
-    request<MenuItem[]>('/menu').then((items) => { if (active) setMenu(items); })
+    api.menu().then((items) => { if (active) setMenu(items); })
       .catch(() => { if (active) setMenuError(true); });
     return () => { active = false; };
   }, [menuAttempt]);
@@ -153,11 +154,7 @@ function Cashier({ sync }: { sync: () => void }) {
       const items = Object.fromEntries(Object.entries(order.cart).filter(([, quantity]) => quantity > 0));
       sessionStorage.setItem(pendingKey, JSON.stringify(order));
       setPending(order);
-      const result = await request<Receipt>('/tickets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': order.key },
-        body: JSON.stringify({ items }),
-      });
+      const result = await api.submit(order.key, items);
       sessionStorage.removeItem(pendingKey);
       setPending(null);
       setReceipt(result);
@@ -229,7 +226,7 @@ function TicketHeader({ ticket, showState = true }: { ticket: Ticket; showState?
   </header>;
 }
 
-function ActionButton({ path, children, className, sync }: { path: string; children: ReactNode; className: string; sync: () => void }) {
+function ActionButton({ action, children, className, sync }: { action: () => Promise<void>; children: ReactNode; className: string; sync: () => void }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -237,7 +234,7 @@ function ActionButton({ path, children, className, sync }: { path: string; child
     setSaving(true);
     setError('');
     try {
-      await request<void>(path, { method: 'PUT' });
+      await action();
       sync();
     } catch (failure) {
       setError(failure instanceof RequestError ? failure.message : 'Update could not be confirmed. Try again.');
@@ -263,7 +260,7 @@ function StationBoard({ station, tickets, sync, loading }: BoardProps & { statio
         <TicketHeader ticket={ticket} showState={false} />
         {ticket.items.map((item) => <div className="station-item" key={item.id}>
           <div className="station-line"><span>×{item.quantity}</span><strong>{item.name}</strong></div>
-          <ActionButton className="primary" path={`/stations/${station}/items/${item.id}/done`} sync={sync}><Check size={18} /> Mark done</ActionButton>
+          <ActionButton className="primary" action={() => api.complete(station, item.id)} sync={sync}><Check size={18} /> Mark done</ActionButton>
         </div>)}
       </article>)}
     </div>
@@ -291,7 +288,7 @@ function Handoff({ tickets, sync, loading }: BoardProps) {
           {column.map((ticket) => <article className={`ticket ${ticket.ready ? 'ready-ticket' : ''}`} aria-label={`Ticket ${formatTicket(ticket.id)}`} key={ticket.id}>
             <TicketHeader ticket={ticket} />
             <ul className="ticket-items">{ticket.items.map((item) => <HandoffItem item={item} key={item.id} />)}</ul>
-            {ticket.ready && <ActionButton path={`/tickets/${ticket.id}/handoff`} className="handoff-button" sync={sync}><Check size={17} /> Mark handed off</ActionButton>}
+            {ticket.ready && <ActionButton action={() => api.handoff(ticket.id)} className="handoff-button" sync={sync}><Check size={17} /> Mark handed off</ActionButton>}
           </article>)}
         </div>
       </section>;

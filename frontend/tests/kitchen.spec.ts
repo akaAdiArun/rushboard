@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 const ticketCard = (page: Page, number: string) => page.getByRole('article', { name: `Ticket ${number}` });
+const publicDemo = process.env.RUSHBOARD_DEMO === '1';
 
 async function sentTicket(cashier: Page) {
   const receipt = cashier.getByText(/Ticket #\d+ sent to the kitchen/);
@@ -13,7 +14,12 @@ async function sentTicket(cashier: Page) {
 
 test('four screens route and complete an order without refreshing', async ({ page: cashier, context }) => {
   const [grill, fryer, handoff] = await Promise.all([context.newPage(), context.newPage(), context.newPage()]);
-  await Promise.all([cashier.goto('/'), grill.goto('/grill'), fryer.goto('/fryer'), handoff.goto('/handoff')]);
+  await Promise.all([cashier, grill, fryer, handoff].map((page) => page.goto('./')));
+  await Promise.all([
+    grill.getByRole('link', { name: 'Grill', exact: true }).click(),
+    fryer.getByRole('link', { name: 'Fryer', exact: true }).click(),
+    handoff.getByRole('link', { name: 'Handoff', exact: true }).click(),
+  ]);
   await expect(cashier.getByRole('heading', { name: 'New ticket' })).toBeVisible();
   await expect(grill.getByRole('heading', { name: 'Grill station' })).toBeVisible();
   await expect(fryer.getByRole('heading', { name: 'Fryer station' })).toBeVisible();
@@ -65,6 +71,7 @@ test('four screens route and complete an order without refreshing', async ({ pag
 });
 
 test('a lost response and cashier reload recover the same ticket', async ({ page: cashier, context }) => {
+  test.skip(publicDemo, 'This scenario intercepts the FastAPI network response.');
   const handoff = await context.newPage();
   await Promise.all([cashier.goto('/cashier'), handoff.goto('/handoff')]);
   let originalNumber = '';
@@ -97,4 +104,21 @@ test('a lost response and cashier reload recover the same ticket', async ({ page
     expect((await cashier.request.put(`/api/stations/${item.station}/items/${item.id}/done`)).status()).toBe(204);
   }
   expect((await cashier.request.put(`/api/tickets/${Number(originalNumber.slice(1))}/handoff`)).status()).toBe(204);
+});
+
+test('the public demo recovers one ticket when two tabs retry together', async ({ page: cashier, context }) => {
+  test.skip(!publicDemo, 'This scenario exercises the browser demo storage.');
+  const retry = await context.newPage();
+  const handoff = await context.newPage();
+  await Promise.all([cashier.goto('./cashier/'), retry.goto('./cashier/'), handoff.goto('./handoff/')]);
+  const order = { key: '79d96564-6aeb-416a-9d9f-1884de51f550', cart: { burger: 1, fries: 1 } };
+  await Promise.all([cashier, retry].map(async (page) => {
+    await page.evaluate((pending) => sessionStorage.setItem('rushboard.pending-order', JSON.stringify(pending)), order);
+    await page.reload();
+  }));
+  await Promise.all([cashier, retry].map((page) => page.getByRole('button', { name: 'Retry ticket' }).click()));
+  const [originalNumber, retryNumber] = await Promise.all([sentTicket(cashier), sentTicket(retry)]);
+  expect(retryNumber).toBe(originalNumber);
+  await expect(ticketCard(handoff, originalNumber)).toContainText('1× Smash Burger');
+  await expect(handoff.getByRole('article')).toHaveCount(1);
 });

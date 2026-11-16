@@ -1,6 +1,7 @@
 .git
 **/node_modules
 **/dist
+**/dist-demo
 **/__pycache__
 **/.pytest_cache
 **/.venv

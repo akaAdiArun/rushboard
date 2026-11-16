@@ -1,39 +1,7 @@
-export type Station = 'grill' | 'fryer';
-export type View = 'cashier' | Station | 'handoff';
-export type MenuCode = 'burger' | 'fries';
-export type Cart = Record<MenuCode, number>;
+import { type KitchenApi, RequestError } from './contracts';
+import { demoApi } from './demo-api';
 
-export interface MenuItem {
-  code: MenuCode;
-  name: string;
-  station: Station;
-}
-
-export interface Receipt {
-  id: number;
-  created_at: string;
-}
-
-export interface TicketItem {
-  id: number;
-  name: string;
-  station: Station;
-  quantity: number;
-  done: boolean;
-}
-
-export interface Ticket extends Receipt {
-  ready: boolean;
-  items: TicketItem[];
-}
-
-export class RequestError extends Error {
-  constructor(public status: number, message: string) {
-    super(message);
-  }
-}
-
-export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api${path}`, {
     signal: AbortSignal.timeout(8000),
     ...options,
@@ -47,3 +15,19 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
   if (response.status === 204) return undefined as T;
   return response.json();
 }
+
+export const publicDemo = import.meta.env.MODE === 'demo';
+
+const httpApi: KitchenApi = {
+  menu: () => request('/menu'),
+  board: (view, signal) => request(`/boards/${view}`, { signal }),
+  submit: (key, items) => request('/tickets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key },
+    body: JSON.stringify({ items }),
+  }),
+  complete: (station, itemId) => request(`/stations/${station}/items/${itemId}/done`, { method: 'PUT' }),
+  handoff: (id) => request(`/tickets/${id}/handoff`, { method: 'PUT' }),
+};
+
+export const api = publicDemo ? demoApi : httpApi;
