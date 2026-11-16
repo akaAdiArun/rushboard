@@ -2,6 +2,10 @@
 
 A kitchen ticket system for the fictional **Service Lane Diner**, inspired by the handoffs between the counter, grill, and fryer during a rush.
 
+**[Try the live demo](https://akaadiarun.github.io/rushboard/)**. Send the burger-and-fries order from Cashier, finish each item on Grill and Fryer, then watch it move to **Ready for pickup** on Handoff. Open the screens in separate tabs to watch them update together.
+
+The GitHub Pages demo stores its tickets in your browser. Run the Docker Compose stack below to try the FastAPI and PostgreSQL implementation, including database-backed retries.
+
 ![RushBoard handoff board showing ticket 002 still cooking and ticket 001 ready for pickup](docs/handoff.png)
 
 ## Quick start

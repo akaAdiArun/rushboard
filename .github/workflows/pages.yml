@@ -1,0 +1,63 @@
+name: Publish RushBoard demo
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build browser demo
+        run: |
+          npm ci
+          npm run build:demo
+      - name: Verify demo pages in Chromium
+        env:
+          RUSHBOARD_BASE_URL: http://127.0.0.1:4173/rushboard/
+          RUSHBOARD_DEMO: '1'
+        run: |
+          npx playwright install --with-deps chromium
+          mkdir -p "$RUNNER_TEMP/pages"
+          ln -s "$PWD/dist-demo" "$RUNNER_TEMP/pages/rushboard"
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory "$RUNNER_TEMP/pages" &
+          server=$!
+          trap 'kill "$server"' EXIT
+          curl --retry 5 --retry-connrefused --fail --silent --output /dev/null "$RUSHBOARD_BASE_URL"
+          npm run test:e2e
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: frontend/dist-demo
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.release.outputs.page_url }}
+    steps:
+      - id: release
+        uses: actions/deploy-pages@v4
